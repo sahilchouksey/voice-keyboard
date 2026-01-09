@@ -72,6 +72,9 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
         private const val TAG = "VoiceKeyboardService"
     }
     
+    // Keyboard mode: VOICE for voice input, TEXT for typing
+    enum class KeyboardMode { VOICE, TEXT }
+    
     private lateinit var audioRecorder: SharedAudioRecorder
     private lateinit var apiClient: SharedApiClient
     private lateinit var stateManager: KeyboardStateManager
@@ -92,6 +95,9 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
     private val _partialText = mutableStateOf("")
     private val _errorMessage = mutableStateOf<String?>(null)
     private val _hasPermission = mutableStateOf(false)
+    
+    // Keyboard mode state - VOICE by default
+    private val _keyboardMode = mutableStateOf(KeyboardMode.VOICE)
     
     // Store last recorded audio for retry functionality
     private var lastRecordedAudioBase64: String? = null
@@ -266,31 +272,39 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
                 MaterialTheme(
                     colorScheme = darkColorScheme()
                 ) {
-                    VoiceKeyboardUI(
-                        recordingState = _recordingState.value,
-                        partialText = _partialText.value,
-                        errorMessage = _errorMessage.value,
-                        hasPermission = _hasPermission.value,
-                        canRetry = _canRetry.value,
-                        countdownSeconds = _countdownSeconds.value,
-                        audioAmplitudes = _audioAmplitudes.value,
-                        navBarHeightDp = navBarHeightDp,
-                        onMicTap = { toggleRecording() },
-                        onMicHoldStart = { startRecording() },
-                        onMicHoldEnd = { stopRecording() },
-                        onRetry = { retryTranscription() },
-                        onDismissError = { dismissError() },
-                        onBackspace = { deleteLastChar() },
-                        onBackspaceLongPress = { deleteWord() },
-                        // Gboard-style swipe-to-select callbacks
-                        onSwipeSelectStart = { startSwipeSelection() },
-                        onExtendSelectionLeft = { extendSelectionLeft() },
-                        onReduceSelectionRight = { reduceSelectionRight() },
-                        onSwipeSelectEnd = { endSwipeSelectionAndDelete() },
-                        onEnter = { sendEnterKey() },
-                        onSwitchKeyboard = { switchToNextKeyboard() },
-                        onOpenSettings = { openSettings() }
-                    )
+                    when (_keyboardMode.value) {
+                        KeyboardMode.VOICE -> VoiceKeyboardUI(
+                            recordingState = _recordingState.value,
+                            partialText = _partialText.value,
+                            errorMessage = _errorMessage.value,
+                            hasPermission = _hasPermission.value,
+                            canRetry = _canRetry.value,
+                            countdownSeconds = _countdownSeconds.value,
+                            audioAmplitudes = _audioAmplitudes.value,
+                            navBarHeightDp = navBarHeightDp,
+                            onMicTap = { toggleRecording() },
+                            onMicHoldStart = { startRecording() },
+                            onMicHoldEnd = { stopRecording() },
+                            onRetry = { retryTranscription() },
+                            onDismissError = { dismissError() },
+                            onBackspace = { deleteLastChar() },
+                            onBackspaceLongPress = { deleteWord() },
+                            // Gboard-style swipe-to-select callbacks
+                            onSwipeSelectStart = { startSwipeSelection() },
+                            onExtendSelectionLeft = { extendSelectionLeft() },
+                            onReduceSelectionRight = { reduceSelectionRight() },
+                            onSwipeSelectEnd = { endSwipeSelectionAndDelete() },
+                            onEnter = { sendEnterKey() },
+                            onSwitchKeyboard = { switchToTextKeyboard() },
+                            onOpenSettings = { openSettings() }
+                        )
+                        KeyboardMode.TEXT -> TextKeyboardUI(
+                            navBarHeightDp = navBarHeightDp,
+                            onKeyAction = { handleKeyAction(it) },
+                            onSwitchToVoice = { switchToVoiceKeyboard() },
+                            onBackspaceLongPress = { deleteWord() }
+                        )
+                    }
                 }
             }
         }
@@ -723,8 +737,88 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
     }
     
     fun sendEnterKey() {
-        currentInputConnection?.performEditorAction(EditorInfo.IME_ACTION_DONE)
+        val connection = currentInputConnection ?: return
+        val editorInfo = currentInputEditorInfo
+        
         if (stateManager.hapticFeedback) vibrate()
+        
+        // Check if this is a multi-line text field (like a text area or notes app)
+        // In multi-line fields, Enter should insert a newline
+        val isMultiLine = editorInfo?.inputType?.and(EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE) != 0
+        
+        // Get the IME action from imeOptions
+        val imeAction = editorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION) ?: EditorInfo.IME_ACTION_UNSPECIFIED
+        
+        Log.d(TAG, "sendEnterKey: isMultiLine=$isMultiLine, imeAction=$imeAction")
+        
+        when {
+            // For multi-line fields, always insert newline
+            isMultiLine -> {
+                connection.commitText("\n", 1)
+                Log.d(TAG, "Inserted newline (multi-line field)")
+            }
+            // For single-line fields with specific actions, perform the action
+            imeAction == EditorInfo.IME_ACTION_SEARCH ||
+            imeAction == EditorInfo.IME_ACTION_SEND ||
+            imeAction == EditorInfo.IME_ACTION_GO ||
+            imeAction == EditorInfo.IME_ACTION_NEXT ||
+            imeAction == EditorInfo.IME_ACTION_DONE -> {
+                connection.performEditorAction(imeAction)
+                Log.d(TAG, "Performed editor action: $imeAction")
+            }
+            // For unspecified or none, just insert newline
+            else -> {
+                connection.commitText("\n", 1)
+                Log.d(TAG, "Inserted newline (default)")
+            }
+        }
+    }
+    
+    /**
+     * Switch to the text keyboard mode
+     */
+    private fun switchToTextKeyboard() {
+        Log.d(TAG, "Switching to TEXT keyboard mode")
+        // Stop any active recording first
+        stopRecordingIfActive()
+        _keyboardMode.value = KeyboardMode.TEXT
+        vibrate()
+    }
+    
+    /**
+     * Switch to the voice keyboard mode
+     */
+    private fun switchToVoiceKeyboard() {
+        Log.d(TAG, "Switching to VOICE keyboard mode")
+        _keyboardMode.value = KeyboardMode.VOICE
+        vibrate()
+    }
+    
+    /**
+     * Handle key actions from the text keyboard
+     */
+    private fun handleKeyAction(action: KeyAction) {
+        if (stateManager.hapticFeedback) vibrate()
+        
+        when (action) {
+            is KeyAction.CommitText -> {
+                currentInputConnection?.commitText(action.text, 1)
+            }
+            KeyAction.Delete -> {
+                deleteLastChar()
+            }
+            KeyAction.Enter -> {
+                sendEnterKey()
+            }
+            KeyAction.Space -> {
+                currentInputConnection?.commitText(" ", 1)
+            }
+            KeyAction.SwitchToVoice -> {
+                switchToVoiceKeyboard()
+            }
+            // Shift and SwitchToSymbols are handled internally by TextKeyboardUI
+            else -> {}
+        }
     }
     
     /**
@@ -1207,7 +1301,7 @@ fun VoiceKeyboardUI(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Switch keyboard button
+                // Switch keyboard button (to text mode)
                 IconButton(
                     onClick = onSwitchKeyboard,
                     modifier = Modifier
@@ -1215,8 +1309,8 @@ fun VoiceKeyboardUI(
                         .background(Color(0xFF3A3A3C), CircleShape)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Language,
-                        contentDescription = "Switch keyboard",
+                        imageVector = Icons.Default.Keyboard,
+                        contentDescription = "Switch to text keyboard",
                         tint = Color.White
                     )
                 }

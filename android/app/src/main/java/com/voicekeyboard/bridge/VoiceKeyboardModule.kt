@@ -230,7 +230,9 @@ class VoiceKeyboardModule(reactContext: ReactApplicationContext) :
                 Settings.Secure.ENABLED_INPUT_METHODS
             ) ?: ""
             
-            promise.resolve(enabledInputMethods.contains(packageName))
+            val isEnabled = enabledInputMethods.contains(packageName)
+            android.util.Log.d("VoiceKeyboardModule", "isKeyboardEnabled: packageName=$packageName, enabledInputMethods=$enabledInputMethods, isEnabled=$isEnabled")
+            promise.resolve(isEnabled)
         } catch (e: Exception) {
             promise.reject("KEYBOARD_ERROR", e.message)
         }
