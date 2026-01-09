@@ -59,6 +59,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 
 /**
  * Voice Keyboard InputMethodService
@@ -249,6 +251,12 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
             Log.d(TAG, "Set lifecycle owners on window decorView")
         } ?: Log.w(TAG, "Window decorView is null, Compose may crash!")
         
+        // Calculate navigation bar height to avoid overlap
+        val navBarHeightPx = getNavigationBarHeight()
+        val density = resources.displayMetrics.density
+        val navBarHeightDp = (navBarHeightPx / density).toInt()
+        Log.d(TAG, "Navigation bar height: ${navBarHeightPx}px (${navBarHeightDp}dp)")
+        
         // Create ComposeView with proper lifecycle handling for InputMethodService
         val composeView = ComposeView(this).apply {
             // Use DisposeOnDetachedFromWindowOrReleasedFromPool for IME
@@ -266,6 +274,7 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
                         canRetry = _canRetry.value,
                         countdownSeconds = _countdownSeconds.value,
                         audioAmplitudes = _audioAmplitudes.value,
+                        navBarHeightDp = navBarHeightDp,
                         onMicTap = { toggleRecording() },
                         onMicHoldStart = { startRecording() },
                         onMicHoldEnd = { stopRecording() },
@@ -953,6 +962,53 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
             vibrator.vibrate(30)
         }
     }
+    
+    /**
+     * Get navigation bar height dynamically based on device configuration.
+     * Returns 0 if no navigation bar is present (e.g., devices with physical buttons).
+     * Adapts to different navigation modes:
+     * - Gesture navigation: smaller height (~48px)
+     * - 3-button/2-button navigation: larger height (~126px)
+     * - No navigation bar: 0px
+     */
+    private fun getNavigationBarHeight(): Int {
+        // Method 1: Use WindowInsets API (API 30+) - most accurate
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window?.window?.decorView?.let { decorView ->
+                val windowInsets = decorView.rootWindowInsets
+                if (windowInsets != null) {
+                    val navBarInsets = windowInsets.getInsets(android.view.WindowInsets.Type.navigationBars())
+                    val height = navBarInsets.bottom
+                    Log.d(TAG, "Nav bar height (WindowInsets API 30+): ${height}px")
+                    return height
+                }
+            }
+        }
+        
+        // Method 2: Use WindowInsetsCompat for older APIs
+        window?.window?.decorView?.let { decorView ->
+            val windowInsets = WindowInsetsCompat.toWindowInsetsCompat(
+                decorView.rootWindowInsets ?: return@let
+            )
+            val navBarInsets = windowInsets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val height = navBarInsets.bottom
+            if (height > 0) {
+                Log.d(TAG, "Nav bar height (WindowInsetsCompat): ${height}px")
+                return height
+            }
+        }
+        
+        // Method 3: Fallback to resource-based detection
+        val resourceId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        if (resourceId > 0) {
+            val height = resources.getDimensionPixelSize(resourceId)
+            Log.d(TAG, "Nav bar height (resource fallback): ${height}px")
+            return height
+        }
+        
+        Log.d(TAG, "Nav bar height: 0px (no navigation bar detected)")
+        return 0
+    }
 }
 
 @Composable
@@ -964,6 +1020,7 @@ fun VoiceKeyboardUI(
     canRetry: Boolean,
     countdownSeconds: Int?,
     audioAmplitudes: List<Float>,
+    navBarHeightDp: Int = 0,
     onMicTap: () -> Unit,
     onMicHoldStart: () -> Unit,
     onMicHoldEnd: () -> Unit,
@@ -984,16 +1041,20 @@ fun VoiceKeyboardUI(
     val isProcessing = recordingState == KeyboardStateManager.RecordingState.PROCESSING
     val isError = recordingState == KeyboardStateManager.RecordingState.ERROR
     
+    // Total height = keyboard content (220dp) + navigation bar padding
+    val keyboardContentHeight = 220.dp
+    val navBarPadding = navBarHeightDp.dp
+    
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(220.dp),
+            .height(keyboardContentHeight + navBarPadding),
         color = Color(0xFF1C1C1E)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp),
+                .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp + navBarPadding),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Status text area
@@ -1073,25 +1134,6 @@ fun VoiceKeyboardUI(
                                         else -> Color.White.copy(alpha = 0.8f)
                                     },
                                     fontSize = 16.sp
-                                )
-                            }
-                        }
-                        
-                        // Show countdown badge when recording in last 10 seconds
-                        if (isListening && countdownSeconds != null) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .background(
-                                        color = if (countdownSeconds <= 5) Color(0xFFFF453A) else Color(0xFFFF9F0A),
-                                        shape = RoundedCornerShape(16.dp)
-                                    )
-                                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = "${countdownSeconds}s remaining",
-                                    color = Color.White,
-                                    fontSize = 14.sp
                                 )
                             }
                         }
