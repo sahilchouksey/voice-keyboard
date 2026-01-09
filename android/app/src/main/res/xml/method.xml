@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<input-method xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.voicekeyboard.MainActivity"
+    android:icon="@mipmap/ic_launcher"
+    android:isDefault="false"
+    android:supportsSwitchingToNextInputMethod="true">
+    
+    <subtype
+        android:label="VoiceFlow"
+        android:imeSubtypeLocale="en_US"
+        android:imeSubtypeMode="voice"
+        android:isAuxiliary="false"
+        android:overridesImplicitlyEnabledSubtype="false" />
+    
+    <subtype
+        android:label="VoiceFlow"
+        android:imeSubtypeLocale="en_GB"
+        android:imeSubtypeMode="voice"
+        android:isAuxiliary="false"
+        android:overridesImplicitlyEnabledSubtype="false" />
+
+</input-method>
