@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo/logo.png" alt="Voice Keyboard Logo" width="120" height="120">
+  <img src="assets/logo/logo-white.svg" alt="Voice Keyboard Logo" width="120" height="120">
 </p>
 
 <h1 align="center">Voice Keyboard</h1>
