@@ -240,6 +240,14 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
                 _errorMessage.value = error
             }
         }
+        
+        // Observe API URL changes and update the client
+        serviceScope.launch {
+            stateManager.apiUrlFlow.collectLatest { url ->
+                Log.d(TAG, "API URL changed: $url")
+                apiClient.setBaseUrl(url)
+            }
+        }
     }
     
     override fun onCreateInputView(): View {

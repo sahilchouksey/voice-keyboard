@@ -67,10 +67,17 @@ class KeyboardStateManager private constructor(context: Context) {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
     
+    // API URL as observable StateFlow so IME can react to changes
+    private val _apiUrl = MutableStateFlow(prefs.getString(KEY_API_URL, DEFAULT_API_URL) ?: DEFAULT_API_URL)
+    val apiUrlFlow: StateFlow<String> = _apiUrl.asStateFlow()
+    
     // Settings
     var apiUrl: String
-        get() = prefs.getString(KEY_API_URL, DEFAULT_API_URL) ?: DEFAULT_API_URL
-        set(value) = prefs.edit().putString(KEY_API_URL, value).apply()
+        get() = _apiUrl.value
+        set(value) {
+            _apiUrl.value = value
+            prefs.edit().putString(KEY_API_URL, value).apply()
+        }
     
     var keyboardMode: KeyboardMode
         get() = KeyboardMode.valueOf(
