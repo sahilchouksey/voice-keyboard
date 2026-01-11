@@ -5,7 +5,7 @@
 <h1 align="center">Voice Keyboard</h1>
 
 <p align="center">
-  <strong>A powerful Android keyboard with voice-to-text transcription powered by Wispr Flow</strong>
+  <strong>A powerful Android keyboard with voice-to-text transcription</strong>
 </p>
 
 <p align="center">
@@ -39,17 +39,17 @@ voice-keyboard/
 
 ### Components
 
-| Component            | Description                                                                                                                       |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Android IME**      | Native Kotlin keyboard service with Jetpack Compose UI                                                                            |
-| **Backend Server**   | Bun.js server using [wispr-flow-sdk-unofficial](https://github.com/sahilchouksey/wispr-flow-sdk) for speech-to-text transcription |
-| **React Native App** | Configuration app for keyboard settings                                                                                           |
+| Component            | Description                                            |
+| -------------------- | ------------------------------------------------------ |
+| **Android IME**      | Native Kotlin keyboard service with Jetpack Compose UI |
+| **Backend Server**   | Bun.js server for speech-to-text transcription         |
+| **React Native App** | Configuration app for keyboard settings                |
 
 ### Backend
 
-The backend server utilizes the unofficial Wispr Flow SDK to provide high-quality speech-to-text transcription. It receives base64-encoded audio from the keyboard and returns transcribed text.
+The backend handles speech-to-text transcription. The keyboard is **API-agnostic** - swap in any transcription service you prefer.
 
-See [backend/README.md](backend/README.md) for detailed setup and API documentation.
+See [backend/README.md](backend/README.md) for setup.
 
 ## Getting Started
 
