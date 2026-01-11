@@ -3,16 +3,21 @@ package com.voicekeyboard.ime
 import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.SpaceBar
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -67,7 +72,14 @@ fun TextKeyboardUI(
     navBarHeightDp: Int = 0,
     onKeyAction: (KeyAction) -> Unit,
     onSwitchToVoice: () -> Unit,
-    onBackspaceLongPress: () -> Unit = {}
+    onBackspaceLongPress: () -> Unit = {},
+    onCursorMoveLeft: () -> Boolean = { false },
+    onCursorMoveRight: () -> Boolean = { false },
+    // Gboard-style swipe-to-select callbacks for backspace
+    onSwipeSelectStart: () -> Unit = {},
+    onExtendSelectionLeft: () -> Boolean = { false },
+    onReduceSelectionRight: () -> Boolean = { false },
+    onSwipeSelectEnd: () -> Unit = {}
 ) {
     var isShifted by remember { mutableStateOf(false) }
     var isCapsLock by remember { mutableStateOf(false) }
@@ -136,7 +148,13 @@ fun TextKeyboardUI(
                         }
                     },
                     onBackspaceLongPress = onBackspaceLongPress,
-                    isCapsLock = isCapsLock
+                    isCapsLock = isCapsLock,
+                    onCursorMoveLeft = onCursorMoveLeft,
+                    onCursorMoveRight = onCursorMoveRight,
+                    onSwipeSelectStart = onSwipeSelectStart,
+                    onExtendSelectionLeft = onExtendSelectionLeft,
+                    onReduceSelectionRight = onReduceSelectionRight,
+                    onSwipeSelectEnd = onSwipeSelectEnd
                 )
             }
         }
@@ -148,7 +166,13 @@ private fun ColumnScope.QwertyKeyboard(
     isShifted: Boolean,
     isCapsLock: Boolean,
     onKeyAction: (KeyAction) -> Unit,
-    onBackspaceLongPress: () -> Unit
+    onBackspaceLongPress: () -> Unit,
+    onCursorMoveLeft: () -> Boolean,
+    onCursorMoveRight: () -> Boolean,
+    onSwipeSelectStart: () -> Unit,
+    onExtendSelectionLeft: () -> Boolean,
+    onReduceSelectionRight: () -> Boolean,
+    onSwipeSelectEnd: () -> Unit
 ) {
     val row1 = listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
     val row2 = listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")
@@ -196,12 +220,15 @@ private fun ColumnScope.QwertyKeyboard(
             )
         }
         
-        // Backspace key
-        FunctionalKey(
-            icon = Icons.AutoMirrored.Filled.Backspace,
-            modifier = Modifier.weight(1.5f),
-            onClick = { onKeyAction(KeyAction.Delete) },
-            onLongPress = onBackspaceLongPress
+        // Backspace key - Gboard-style with swipe-to-select
+        GboardStyleBackspaceKey(
+            onDelete = { onKeyAction(KeyAction.Delete) },
+            onDeleteWord = onBackspaceLongPress,
+            onSwipeSelectStart = onSwipeSelectStart,
+            onExtendSelectionLeft = onExtendSelectionLeft,
+            onReduceSelectionRight = onReduceSelectionRight,
+            onSwipeSelectEnd = onSwipeSelectEnd,
+            modifier = Modifier.weight(1.5f)
         )
     }
     
@@ -227,10 +254,12 @@ private fun ColumnScope.QwertyKeyboard(
             onKeyAction = onKeyAction
         )
         
-        // Space bar
-        SpaceKey(
+        // Space bar with joystick cursor movement
+        GboardStyleSpaceBar(
             modifier = Modifier.weight(4f),
-            onClick = { onKeyAction(KeyAction.Space) }
+            onClick = { onKeyAction(KeyAction.Space) },
+            onCursorMoveLeft = onCursorMoveLeft,
+            onCursorMoveRight = onCursorMoveRight
         )
         
         // Period
@@ -527,5 +556,151 @@ private fun SpaceKey(
             fontSize = 14.sp,
             fontWeight = FontWeight.Normal
         )
+    }
+}
+
+/**
+ * Gboard-style Space Bar with joystick cursor movement
+ * - Tap: Insert space
+ * - Hold + Swipe left/right: Move cursor left/right
+ */
+@Composable
+private fun GboardStyleSpaceBar(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    onCursorMoveLeft: () -> Boolean,
+    onCursorMoveRight: () -> Boolean
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var isPressed by remember { mutableStateOf(false) }
+    var isInCursorMode by remember { mutableStateOf(false) }
+    var cursorMoveCount by remember { mutableIntStateOf(0) }
+    
+    // Gesture constants
+    val holdThresholdMs = 150L           // Time to hold before cursor mode activates
+    val pixelsPerMove = 25f              // Horizontal distance to move cursor one position
+    val swipeActivationThreshold = 10f   // Minimum horizontal movement to enter cursor mode
+    
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(5.dp))
+            .background(
+                when {
+                    isInCursorMode -> Color(0xFF007AFF).copy(alpha = 0.3f)
+                    isPressed -> Color(0xFF5A5A5C)
+                    else -> Color(0xFF3A3A3C)
+                }
+            )
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    // Wait for finger down
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    isPressed = true
+                    isInCursorMode = false
+                    cursorMoveCount = 0
+                    
+                    var cumulativeDragX = 0f
+                    var cursorModeActivated = false
+                    var holdDetected = false
+                    var totalMoves = 0  // Track absolute total of cursor moves
+                    
+                    // Job to detect hold
+                    val holdJob = coroutineScope.launch {
+                        kotlinx.coroutines.delay(holdThresholdMs)
+                        holdDetected = true
+                    }
+                    
+                    var wasTap = true  // Assume tap until proven otherwise
+                    
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Main)
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            
+                            if (change == null || !change.pressed) {
+                                // Finger lifted
+                                break
+                            }
+                            
+                            // Accumulate horizontal drag
+                            val dragDelta = change.positionChange()
+                            cumulativeDragX += dragDelta.x
+                            
+                            // Check if we should enter cursor mode
+                            val absHorizontal = kotlin.math.abs(cumulativeDragX)
+                            if (!cursorModeActivated && holdDetected && absHorizontal > swipeActivationThreshold) {
+                                cursorModeActivated = true
+                                isInCursorMode = true
+                                wasTap = false
+                            }
+                            
+                            // Handle cursor movement
+                            if (cursorModeActivated) {
+                                wasTap = false
+                                
+                                // Calculate target move count based on drag distance
+                                // Positive = right, Negative = left
+                                val targetMoves = (cumulativeDragX / pixelsPerMove).toInt()
+                                
+                                // Move cursor incrementally
+                                while (totalMoves < targetMoves) {
+                                    if (onCursorMoveRight()) {
+                                        totalMoves++
+                                        cursorMoveCount++
+                                    } else {
+                                        break
+                                    }
+                                }
+                                while (totalMoves > targetMoves) {
+                                    if (onCursorMoveLeft()) {
+                                        totalMoves--
+                                        cursorMoveCount++
+                                    } else {
+                                        break
+                                    }
+                                }
+                            }
+                            
+                            change.consume()
+                        }
+                    } finally {
+                        holdJob.cancel()
+                        
+                        // If it was a tap (no cursor mode activated), insert space
+                        if (wasTap && !cursorModeActivated) {
+                            onClick()
+                        }
+                        
+                        isPressed = false
+                        isInCursorMode = false
+                        cursorMoveCount = 0
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        // Visual feedback
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (isInCursorMode) {
+                // Show cursor mode indicator
+                Icon(
+                    imageVector = Icons.Default.SwapHoriz,
+                    contentDescription = "Cursor Mode",
+                    tint = Color(0xFF007AFF),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+            Text(
+                text = if (isInCursorMode) "move cursor" else "space",
+                color = if (isInCursorMode) Color(0xFF007AFF) else Color.White.copy(alpha = 0.6f),
+                fontSize = 14.sp,
+                fontWeight = if (isInCursorMode) FontWeight.Medium else FontWeight.Normal
+            )
+        }
     }
 }

@@ -8,6 +8,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -302,7 +303,14 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
                             navBarHeightDp = navBarHeightDp,
                             onKeyAction = { handleKeyAction(it) },
                             onSwitchToVoice = { switchToVoiceKeyboard() },
-                            onBackspaceLongPress = { deleteWord() }
+                            onBackspaceLongPress = { deleteWord() },
+                            onCursorMoveLeft = { moveCursorLeft() },
+                            onCursorMoveRight = { moveCursorRight() },
+                            // Gboard-style swipe-to-select callbacks (same as voice mode)
+                            onSwipeSelectStart = { startSwipeSelection() },
+                            onExtendSelectionLeft = { extendSelectionLeft() },
+                            onReduceSelectionRight = { reduceSelectionRight() },
+                            onSwipeSelectEnd = { endSwipeSelectionAndDelete() }
                         )
                     }
                 }
@@ -738,41 +746,156 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
     
     fun sendEnterKey() {
         val connection = currentInputConnection ?: return
-        val editorInfo = currentInputEditorInfo
         
         if (stateManager.hapticFeedback) vibrate()
         
-        // Check if this is a multi-line text field (like a text area or notes app)
-        // In multi-line fields, Enter should insert a newline
-        val isMultiLine = editorInfo?.inputType?.and(EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE) != 0
+        // Send actual Enter key event - this works properly in terminals, SSH, and regular text fields
+        // Using sendKeyEvent ensures the Enter key behaves like a physical keyboard Enter
+        val eventTime = System.currentTimeMillis()
+        connection.sendKeyEvent(KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0))
+        connection.sendKeyEvent(KeyEvent(eventTime, eventTime, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0))
         
-        // Get the IME action from imeOptions
-        val imeAction = editorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION) ?: EditorInfo.IME_ACTION_UNSPECIFIED
-        
-        Log.d(TAG, "sendEnterKey: isMultiLine=$isMultiLine, imeAction=$imeAction")
-        
-        when {
-            // For multi-line fields, always insert newline
-            isMultiLine -> {
-                connection.commitText("\n", 1)
-                Log.d(TAG, "Inserted newline (multi-line field)")
-            }
-            // For single-line fields with specific actions, perform the action
-            imeAction == EditorInfo.IME_ACTION_SEARCH ||
-            imeAction == EditorInfo.IME_ACTION_SEND ||
-            imeAction == EditorInfo.IME_ACTION_GO ||
-            imeAction == EditorInfo.IME_ACTION_NEXT ||
-            imeAction == EditorInfo.IME_ACTION_DONE -> {
-                connection.performEditorAction(imeAction)
-                Log.d(TAG, "Performed editor action: $imeAction")
-            }
-            // For unspecified or none, just insert newline
-            else -> {
-                connection.commitText("\n", 1)
-                Log.d(TAG, "Inserted newline (default)")
-            }
-        }
+        Log.d(TAG, "sendEnterKey: Sent KEYCODE_ENTER key event")
     }
+    
+    // ==================== CURSOR MOVEMENT (SPACE BAR JOYSTICK) ====================
+    
+    /**
+     * Detect if current input is a terminal/console context
+     * Terminals typically have:
+     * - NULL inputType or TYPE_NULL
+     * - No extracted text available
+     * - Package names containing "termux", "terminal", "console", "ssh", etc.
+     */
+    private fun isTerminalContext(): Boolean {
+        val editorInfo = currentInputEditorInfo ?: return false
+        val connection = currentInputConnection ?: return false
+        
+        // Check package name for known terminal apps
+        val packageName = editorInfo.packageName?.lowercase() ?: ""
+        val terminalPackages = listOf(
+            "termux", "terminal", "console", "ssh", "telnet", 
+            "connectbot", "juicessh", "remoter", "serverauditor",
+            "vx.connectbot", "org.connectbot", "com.sonelli",
+            "shell", "tty", "pty"
+        )
+        if (terminalPackages.any { packageName.contains(it) }) {
+            Log.d(TAG, "Terminal detected by package name: $packageName")
+            return true
+        }
+        
+        // Check inputType - terminals often have TYPE_NULL or TYPE_CLASS_TEXT with no variations
+        val inputType = editorInfo.inputType
+        if (inputType == EditorInfo.TYPE_NULL) {
+            Log.d(TAG, "Terminal detected by TYPE_NULL inputType")
+            return true
+        }
+        
+        // Check if ExtractedText is unavailable (common for terminals)
+        val extracted = connection.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+        if (extracted == null) {
+            Log.d(TAG, "Terminal likely - ExtractedText unavailable")
+            return true
+        }
+        
+        return false
+    }
+    
+    /**
+     * Send cursor movement for terminal contexts.
+     * 
+     * Uses Ctrl+B (left) / Ctrl+F (right) emacs-style shortcuts instead of DPAD keys.
+     * 
+     * Why Ctrl+B/F instead of DPAD?
+     * - DPAD keys get translated to ANSI escape sequences (\x1b[D for left)
+     * - This works for readline (bash/zsh) but NOT for TUI apps like OpenCode
+     * - OpenCode uses contenteditable divs that expect browser KeyboardEvents
+     * - Ctrl+B/F are emacs shortcuts that work in BOTH:
+     *   1. Readline/bash (natively supports emacs mode)
+     *   2. OpenCode's OpenTUI Textarea (has keybindings for Ctrl+B/F)
+     * 
+     * @param keyCode Either KEYCODE_DPAD_LEFT or KEYCODE_DPAD_RIGHT to indicate direction
+     */
+    private fun sendArrowKeyEvent(keyCode: Int) {
+        val connection = currentInputConnection ?: return
+        val eventTime = System.currentTimeMillis()
+        
+        // Use Ctrl+B (left) or Ctrl+F (right) instead of DPAD keys
+        // These emacs-style shortcuts work universally in terminals and TUI apps
+        val letterKeyCode = if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            KeyEvent.KEYCODE_B  // Ctrl+B = move cursor left
+        } else {
+            KeyEvent.KEYCODE_F  // Ctrl+F = move cursor right
+        }
+        
+        // Send Ctrl+key combination
+        val ctrlMeta = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+        connection.sendKeyEvent(KeyEvent(
+            eventTime, eventTime, KeyEvent.ACTION_DOWN, letterKeyCode, 0, ctrlMeta
+        ))
+        connection.sendKeyEvent(KeyEvent(
+            eventTime, eventTime, KeyEvent.ACTION_UP, letterKeyCode, 0, ctrlMeta
+        ))
+        
+        if (stateManager.hapticFeedback) vibrate()
+    }
+    
+    /**
+     * Move cursor using multiple strategies:
+     * 1. setSelection for standard text fields
+     * 2. DPAD key events for terminals
+     * 3. ANSI escape sequences for TUI apps (fallback)
+     */
+    private fun moveCursorWithFallback(direction: Int): Boolean {
+        val connection = currentInputConnection ?: return false
+        
+        // For terminals and TUI apps, use key events
+        if (isTerminalContext()) {
+            sendArrowKeyEvent(direction)
+            return true
+        }
+        
+        // For regular text fields, try setSelection first
+        val extracted = connection.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+        if (extracted != null) {
+            val currentPos = extracted.selectionStart
+            val textLength = extracted.text?.length ?: 0
+            
+            val newPos = if (direction == KeyEvent.KEYCODE_DPAD_LEFT) {
+                if (currentPos > 0) currentPos - 1 else return false
+            } else {
+                if (currentPos < textLength) currentPos + 1 else return false
+            }
+            
+            connection.setSelection(newPos, newPos)
+            if (stateManager.hapticFeedback) vibrate()
+            return true
+        }
+        
+        // Fallback to key event
+        sendArrowKeyEvent(direction)
+        return true
+    }
+    
+    /**
+     * Move cursor left by one character
+     * Uses key events for terminals, setSelection for regular text fields
+     * Returns true if the cursor was moved
+     */
+    fun moveCursorLeft(): Boolean {
+        return moveCursorWithFallback(KeyEvent.KEYCODE_DPAD_LEFT)
+    }
+    
+    /**
+     * Move cursor right by one character
+     * Uses key events for terminals, setSelection for regular text fields
+     * Returns true if the cursor was moved
+     */
+    fun moveCursorRight(): Boolean {
+        return moveCursorWithFallback(KeyEvent.KEYCODE_DPAD_RIGHT)
+    }
+    
+    // ==================== END CURSOR MOVEMENT ====================
     
     /**
      * Switch to the text keyboard mode

@@ -12,6 +12,10 @@ import java.net.URL
 /**
  * Shared API client for transcription requests.
  * Used by both React Native app and IME service.
+ * 
+ * API Key Authentication:
+ * - API key can be included in the URL as query param: http://server:3002?api_key=xxx
+ * - The client will extract and forward it with requests
  */
 class SharedApiClient(
     // Default URL - will be overwritten by KeyboardStateManager.apiUrl
@@ -24,6 +28,9 @@ class SharedApiClient(
         private const val READ_TIMEOUT = 30000 // 30 seconds
     }
     
+    // API key extracted from URL (if present)
+    private var apiKey: String = ""
+    
     data class TranscriptionResult(
         val success: Boolean,
         val text: String?,
@@ -32,13 +39,40 @@ class SharedApiClient(
     
     /**
      * Set the base URL for the API
+     * Supports URL with api_key query param: http://server:3002?api_key=xxx
      */
     fun setBaseUrl(url: String) {
-        baseUrl = url.trimEnd('/')
+        val trimmedUrl = url.trimEnd('/')
+        
+        // Extract API key from URL if present
+        try {
+            val uri = java.net.URI(trimmedUrl)
+            val query = uri.query
+            if (query != null && query.contains("api_key=")) {
+                // Extract API key
+                val params = query.split("&")
+                for (param in params) {
+                    if (param.startsWith("api_key=")) {
+                        apiKey = param.substringAfter("api_key=")
+                        break
+                    }
+                }
+                // Store base URL without query params
+                baseUrl = "${uri.scheme}://${uri.host}${if (uri.port != -1) ":${uri.port}" else ""}${uri.path}"
+                Log.d(TAG, "API key extracted from URL, base: $baseUrl")
+            } else {
+                baseUrl = trimmedUrl
+                apiKey = ""
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse URL, using as-is: $trimmedUrl")
+            baseUrl = trimmedUrl
+            apiKey = ""
+        }
     }
     
     /**
-     * Get the current base URL
+     * Get the current base URL (without API key)
      */
     fun getBaseUrl(): String = baseUrl
     
@@ -55,6 +89,10 @@ class SharedApiClient(
                     requestMethod = "POST"
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json")
+                    // Add API key header if configured
+                    if (apiKey.isNotEmpty()) {
+                        setRequestProperty("X-API-Key", apiKey)
+                    }
                     connectTimeout = CONNECT_TIMEOUT
                     readTimeout = READ_TIMEOUT
                 }
@@ -94,10 +132,20 @@ class SharedApiClient(
                     
                     Log.e(TAG, "Transcription failed: $responseCode - $errorResponse")
                     
+                    // Provide user-friendly error messages
+                    val errorMessage = when (responseCode) {
+                        HttpURLConnection.HTTP_UNAUTHORIZED -> 
+                            "Authentication failed. Please check your API key in settings."
+                        HttpURLConnection.HTTP_FORBIDDEN -> 
+                            "Access denied. Invalid API key."
+                        else -> 
+                            "HTTP $responseCode: ${errorResponse ?: "Unknown error"}"
+                    }
+                    
                     TranscriptionResult(
                         success = false,
                         text = null,
-                        error = "HTTP $responseCode: ${errorResponse ?: "Unknown error"}"
+                        error = errorMessage
                     )
                 }
                 
