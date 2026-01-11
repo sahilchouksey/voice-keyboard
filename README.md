@@ -17,6 +17,14 @@
 
 ---
 
+<p align="center">
+  <img src="assets/screenshots/screenshot-1.jpeg" alt="Voice Keyboard Screenshot 1" width="280">
+  &nbsp;&nbsp;
+  <img src="assets/screenshots/screenshot-2.jpeg" alt="Voice Keyboard Screenshot 2" width="280">
+</p>
+
+---
+
 ## Features
 
 - **Voice Input** - Hold to record, release to transcribe
@@ -109,26 +117,22 @@ npm run android:bundle
 
 ### Signing Configuration
 
-For release builds, configure signing in `android/app/build.gradle`:
+For release builds, create `android/app/keystore.properties` (gitignored):
 
-```gradle
-android {
-    signingConfigs {
-        release {
-            storeFile file('your-keystore.jks')
-            storePassword 'your-store-password'
-            keyAlias 'your-key-alias'
-            keyPassword 'your-key-password'
-        }
-    }
-    buildTypes {
-        release {
-            signingConfig signingConfigs.release
-            minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
-    }
-}
+```properties
+storeFile=release.keystore
+storePassword=your-store-password
+keyAlias=your-key-alias
+keyPassword=your-key-password
+```
+
+Then generate a keystore:
+
+```bash
+keytool -genkeypair -v \
+  -keystore android/app/release.keystore \
+  -alias your-key-alias \
+  -keyalg RSA -keysize 2048 -validity 10000
 ```
 
 ## Troubleshooting
