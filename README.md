@@ -12,8 +12,6 @@
   <a href="#features">Features</a> •
   <a href="#architecture">Architecture</a> •
   <a href="#getting-started">Getting Started</a> •
-  <a href="#backend-setup">Backend Setup</a> •
-  <a href="#android-app">Android App</a> •
   <a href="#building-for-production">Production Build</a>
 </p>
 
@@ -21,7 +19,7 @@
 
 ## Features
 
-- **Voice Input** - Hold to record, release to transcribe using Wispr Flow SDK
+- **Voice Input** - Hold to record, release to transcribe
 - **Text Keyboard** - Full QWERTY keyboard with symbols and numbers
 - **Space Bar Joystick** - Swipe on space bar to move cursor left/right
 - **Swipe-to-Delete** - Hold backspace and swipe to select and delete words
@@ -34,18 +32,24 @@
 ```
 voice-keyboard/
 ├── android/          # Native Android IME (Input Method Editor)
-├── backend/          # Bun.js transcription server (Wispr Flow SDK)
+├── backend/          # Bun.js transcription server
 ├── src/              # React Native app (settings UI)
 └── assets/           # App assets and logo
 ```
 
 ### Components
 
-| Component            | Description                                                   |
-| -------------------- | ------------------------------------------------------------- |
-| **Android IME**      | Native Kotlin keyboard service with Jetpack Compose UI        |
-| **Backend Server**   | Bun.js server that handles audio transcription via Wispr Flow |
-| **React Native App** | Configuration app for keyboard settings                       |
+| Component            | Description                                                                                                                       |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Android IME**      | Native Kotlin keyboard service with Jetpack Compose UI                                                                            |
+| **Backend Server**   | Bun.js server using [wispr-flow-sdk-unofficial](https://github.com/sahilchouksey/wispr-flow-sdk) for speech-to-text transcription |
+| **React Native App** | Configuration app for keyboard settings                                                                                           |
+
+### Backend
+
+The backend server utilizes the unofficial Wispr Flow SDK to provide high-quality speech-to-text transcription. It receives base64-encoded audio from the keyboard and returns transcribed text.
+
+See [backend/README.md](backend/README.md) for detailed setup and API documentation.
 
 ## Getting Started
 
@@ -56,74 +60,13 @@ voice-keyboard/
 - React Native CLI
 - JDK 17
 
-### Clone the Repository
+### Installation
 
 ```bash
+# Clone the repository
 git clone https://github.com/sahilchouksey/voice-keyboard.git
 cd voice-keyboard
-```
 
-## Backend Setup
-
-The backend server handles audio transcription using the Wispr Flow SDK.
-
-### 1. Install Dependencies
-
-```bash
-cd backend
-bun install
-```
-
-### 2. Configure Environment
-
-Create a `.env` file in the `backend/` directory:
-
-```env
-# API Key for authentication (required for production)
-# Generate: openssl rand -hex 32
-API_KEY=your_secure_api_key_here
-
-# Wispr Flow SDK credentials
-WISPR_EMAIL=your_email
-WISPR_PASSWORD=your_password
-SUPABASE_URL=https://your-supabase-url.supabase.co
-SUPABASE_ANON_KEY=your_supabase_anon_key
-BASETEN_URL=https://your-baseten-url.api.baseten.co
-BASETEN_API_KEY=your_baseten_api_key
-```
-
-### 3. Run the Server
-
-```bash
-# Development (no API key required)
-bun run server.ts
-
-# Production (API_KEY required)
-API_KEY=your_key bun run server.ts
-```
-
-The server will start on `http://localhost:3002`
-
-### API Endpoints
-
-| Endpoint      | Method | Auth | Description                                  |
-| ------------- | ------ | ---- | -------------------------------------------- |
-| `/health`     | GET    | No   | Health check                                 |
-| `/transcribe` | POST   | Yes  | Transcribe audio (body: `{ audio: base64 }`) |
-
-### Authentication
-
-For production, send the API key via:
-
-- Header: `X-API-Key: your_api_key`
-- Header: `Authorization: Bearer your_api_key`
-- Query param: `?api_key=your_api_key`
-
-## Android App
-
-### Development Build
-
-```bash
 # Install dependencies
 npm install
 
@@ -144,37 +87,25 @@ npm run android
 
 ### Configure Server URL
 
-In the app settings, set the API URL:
+In the app settings, set the API URL to your backend server:
 
-- Local: `http://192.168.x.x:3002`
+- Local development: `http://192.168.x.x:3002`
 - Production: `https://your-server.com?api_key=your_key`
 
 ## Building for Production
 
-### Android Release APK
-
 ```bash
-cd android
-
-# Clean previous builds
-./gradlew clean
+# Clean build
+npm run android:clean
 
 # Build release APK
-./gradlew assembleRelease
+npm run android:release
+# Output: android/app/build/outputs/apk/release/app-release.apk
+
+# Build release bundle (Play Store)
+npm run android:bundle
+# Output: android/app/build/outputs/bundle/release/app-release.aab
 ```
-
-The APK will be at: `android/app/build/outputs/apk/release/app-release.apk`
-
-### Android Release Bundle (AAB)
-
-For Play Store submission:
-
-```bash
-cd android
-./gradlew bundleRelease
-```
-
-The bundle will be at: `android/app/build/outputs/bundle/release/app-release.aab`
 
 ### Signing Configuration
 
@@ -200,28 +131,6 @@ android {
 }
 ```
 
-## Configuration
-
-### Environment Variables (Android App)
-
-The Android app reads the server URL from SharedPreferences. Set it via:
-
-1. The Settings screen in the app
-2. Or programmatically via `KeyboardStateManager.apiUrl`
-
-### Backend Environment Variables
-
-| Variable            | Required   | Description                 |
-| ------------------- | ---------- | --------------------------- |
-| `PORT`              | No         | Server port (default: 3002) |
-| `API_KEY`           | Production | API key for authentication  |
-| `WISPR_EMAIL`       | Yes        | Wispr Flow account email    |
-| `WISPR_PASSWORD`    | Yes        | Wispr Flow account password |
-| `SUPABASE_URL`      | Yes        | Supabase project URL        |
-| `SUPABASE_ANON_KEY` | Yes        | Supabase anonymous key      |
-| `BASETEN_URL`       | Yes        | Baseten API URL             |
-| `BASETEN_API_KEY`   | Yes        | Baseten API key             |
-
 ## Troubleshooting
 
 ### Keyboard not appearing
@@ -243,7 +152,3 @@ The Android app reads the server URL from SharedPreferences. Set it via:
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
