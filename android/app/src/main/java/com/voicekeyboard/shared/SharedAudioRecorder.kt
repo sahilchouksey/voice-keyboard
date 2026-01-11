@@ -99,6 +99,7 @@ class SharedAudioRecorder(private val context: Context) {
             }
             
             audioData.reset()
+            resetAmplitude() // Reset smoothing for fresh waveform
             audioRecord?.startRecording()
             isRecording = true
             recordingStartTimeMs = System.currentTimeMillis()
@@ -245,14 +246,19 @@ class SharedAudioRecorder(private val context: Context) {
         stopRecording()
     }
     
+    // Smoothing for amplitude (EMA - Exponential Moving Average)
+    private var smoothedAmplitude: Float = 0f
+    private val smoothingFactor: Float = 0.3f // Lower = smoother, higher = more responsive
+    
     /**
      * Calculate normalized amplitude (0.0-1.0) from PCM 16-bit audio data
-     * Uses RMS (Root Mean Square) for more accurate amplitude measurement
+     * Uses RMS (Root Mean Square) with peak detection and smoothing for better visualization
      */
     private fun calculateAmplitude(buffer: ByteArray, length: Int): Float {
-        if (length < 2) return 0f
+        if (length < 2) return smoothedAmplitude * 0.9f // Decay when no data
         
         var sum = 0.0
+        var peak = 0
         var sampleCount = 0
         
         // PCM 16-bit: 2 bytes per sample, little-endian
@@ -262,21 +268,44 @@ class SharedAudioRecorder(private val context: Context) {
             val sample = (buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)
             // Convert to signed
             val signedSample = if (sample > 32767) sample - 65536 else sample
+            val absSample = kotlin.math.abs(signedSample)
             
             sum += signedSample.toDouble() * signedSample.toDouble()
+            if (absSample > peak) peak = absSample
             sampleCount++
             i += 2
         }
         
-        if (sampleCount == 0) return 0f
+        if (sampleCount == 0) return smoothedAmplitude * 0.9f
         
         // Calculate RMS
         val rms = kotlin.math.sqrt(sum / sampleCount)
         
-        // Normalize to 0.0-1.0 range (32768 is max value for 16-bit audio)
-        // Apply some gain to make quiet sounds more visible
-        val normalized = (rms / 32768.0 * 3.0).coerceIn(0.0, 1.0)
+        // Combine RMS and peak for more dynamic visualization
+        // RMS gives average loudness, peak catches transients
+        val rmsNormalized = rms / 32768.0
+        val peakNormalized = peak / 32768.0
         
-        return normalized.toFloat()
+        // Weighted combination: 60% RMS, 40% peak
+        val combined = (rmsNormalized * 0.6 + peakNormalized * 0.4)
+        
+        // Apply logarithmic scaling for more natural perception (human hearing is logarithmic)
+        // Add small offset to avoid log(0)
+        val logScaled = kotlin.math.log10(1 + combined * 9) // Maps 0-1 to 0-1 logarithmically
+        
+        // Apply gain and clamp
+        val amplified = (logScaled * 1.5).coerceIn(0.0, 1.0)
+        
+        // Apply exponential moving average for smoothing
+        smoothedAmplitude = smoothedAmplitude * (1 - smoothingFactor) + amplified.toFloat() * smoothingFactor
+        
+        return smoothedAmplitude
+    }
+    
+    /**
+     * Reset amplitude smoothing (call when starting new recording)
+     */
+    fun resetAmplitude() {
+        smoothedAmplitude = 0f
     }
 }

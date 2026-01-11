@@ -204,10 +204,10 @@ class VoiceKeyboardService : InputMethodService(), LifecycleOwner, ViewModelStor
         
         // Amplitude callback for waveform visualization
         audioRecorder.onAmplitudeChanged = { amplitude ->
-            // Keep last 16 amplitude values for waveform display
+            // Keep last 20 amplitude values for waveform display
             val current = _audioAmplitudes.value.toMutableList()
             current.add(amplitude)
-            if (current.size > 16) {
+            if (current.size > 20) {
                 current.removeAt(0)
             }
             _audioAmplitudes.value = current
@@ -1500,13 +1500,13 @@ fun VoiceKeyboardUI(
 
 /**
  * Audio waveform visualizer that displays amplitude bars
- * Shows a faded waveform on the right side of the status area during recording
+ * Shows a smooth, responsive waveform during recording
  */
 @Composable
 fun AudioWaveform(
     amplitudes: List<Float>,
     modifier: Modifier = Modifier,
-    barCount: Int = 16,
+    barCount: Int = 20,
     barColor: Color = Color(0xFF30D158) // Green to match listening state
 ) {
     // Pad amplitudes to barCount if needed
@@ -1518,32 +1518,42 @@ fun AudioWaveform(
     
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(1.5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        paddedAmplitudes.forEach { amplitude ->
-            // Animate bar height changes for smoother visualization
+        paddedAmplitudes.forEachIndexed { index, amplitude ->
+            // Animate bar height changes with spring animation for natural feel
             val animatedHeight by animateFloatAsState(
                 targetValue = amplitude,
-                animationSpec = tween(durationMillis = 50),
+                animationSpec = spring(
+                    dampingRatio = 0.6f,
+                    stiffness = 400f
+                ),
                 label = "bar_height"
             )
+            
+            // Fade older bars slightly for a trailing effect
+            val ageFactor = (index.toFloat() / barCount.toFloat())
+            val alphaMultiplier = 0.5f + (ageFactor * 0.5f) // 50% to 100% opacity
             
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Each bar: minimum height of 4dp, max fills available height
+                // Each bar: minimum height of 8%, max fills available height
+                val minHeight = 0.08f
+                val heightFraction = minHeight + (animatedHeight * (1f - minHeight))
+                
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .fillMaxHeight(fraction = 0.15f + (animatedHeight * 0.85f)) // Min 15%, max 100%
+                        .fillMaxHeight(fraction = heightFraction)
                         .background(
-                            color = barColor.copy(alpha = 0.4f + (animatedHeight * 0.6f)),
-                            shape = RoundedCornerShape(2.dp)
+                            color = barColor.copy(alpha = (0.3f + (animatedHeight * 0.7f)) * alphaMultiplier),
+                            shape = RoundedCornerShape(1.5.dp)
                         )
                 )
             }
