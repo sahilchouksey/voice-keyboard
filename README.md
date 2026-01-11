@@ -18,9 +18,11 @@
 ---
 
 <p align="center">
-  <img src="assets/screenshots/screenshot-1.jpeg" alt="Voice Keyboard Screenshot 1" width="280">
+  <img src="assets/screenshots/screenshot-1.jpeg" alt="Voice Keyboard - Recording" width="240">
   &nbsp;&nbsp;
-  <img src="assets/screenshots/screenshot-2.jpeg" alt="Voice Keyboard Screenshot 2" width="280">
+  <img src="assets/screenshots/screenshot-2.jpeg" alt="Voice Keyboard - Transcribing" width="240">
+  &nbsp;&nbsp;
+  <img src="assets/screenshots/screenshot-3.jpeg" alt="Voice Keyboard - Text Input" width="240">
 </p>
 
 ---
