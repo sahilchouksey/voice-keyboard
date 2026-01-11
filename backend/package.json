@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "module": "index.ts",
+  "module": "server.ts",
   "devDependencies": {
     "@types/bun": "latest"
   },
@@ -10,6 +10,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "wispr-flow-sdk-unofficial": "/Users/sahilchouksey/Documents/fun/wispr-flow-sdk"
+    "wispr-flow-sdk-unofficial": "^0.1.2"
   }
 }
