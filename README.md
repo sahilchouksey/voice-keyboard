@@ -47,7 +47,7 @@ voice-keyboard/
 
 ### Backend
 
-The backend handles speech-to-text transcription. The keyboard is **API-agnostic** - swap in any transcription service you prefer.
+The backend handles speech-to-text transcription.
 
 See [backend/README.md](backend/README.md) for setup.
 
