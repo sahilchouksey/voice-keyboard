@@ -1,6 +1,6 @@
 # Voice Keyboard Backend
 
-Transcription server for Voice Keyboard using the Wispr Flow SDK.
+Transcription server for Voice Keyboard using [wispr-flow-sdk-unofficial](https://github.com/sahilchouksey/wispr-flow-sdk).
 
 ## Setup
 
