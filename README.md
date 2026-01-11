@@ -57,7 +57,7 @@ voice-keyboard/
 
 The backend handles speech-to-text transcription.
 
-> Uses [**wispr-flow-sdk**](https://github.com/sahilchouksey/wispr-flow-sdk) - Unofficial TypeScript SDK for Wispr Flow API
+> Uses [**unofficial-wispr-flow-sdk**](https://github.com/sahilchouksey/unofficial-wispr-flow-sdk) - Unofficial TypeScript SDK for Wispr Flow API
 
 See [backend/README.md](backend/README.md) for detailed setup.
 
